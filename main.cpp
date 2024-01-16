@@ -1,11 +1,15 @@
 #include <iostream>
 #include <SDL2/SDL.h>
 #include <vector>
+#include <algorithm>
+#include <thread>
 
 #define DELAY 25
 #define WIDTH 200
 #define HEIGHT 180
 #define SCALE 5
+#define START_RULE 129
+#define MONO 0
 
 
 typedef struct RGB {
@@ -13,8 +17,8 @@ typedef struct RGB {
     uint8_t g;
     uint8_t b;
 
-    bool isBlack() const {
-        return !(r > 85 || g > 85 || b > 85);
+    bool isOne() const {
+        return (r < 128 || g < 128 || b < 128);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const RGB& rgb){
@@ -39,22 +43,29 @@ void drawScene(SDL_Renderer* renderer, const std::vector<RGB> image, int width, 
 
 void getRuleSet(int rule, bool* ruleset){
     for(int i = 0; i < 8; i++) {
-        ruleset[7-i] = (rule>>i)&0b1;
+        ruleset[i] = (rule>>i)&0b1;
     }
 }
 
 RGB getNewState(RGB left, RGB mid, RGB right, bool *ruleset) {
-    auto has_color = ruleset[7-((left.isBlack()<<2)+(mid.isBlack()<<1)+right.isBlack())];
-    if(has_color){
-        const uint8_t added = 86;
-        RGB result = {added, added, added};
-        result.r += 2*(left.r/3);
-        result.g += 2*(mid.g/3);
-        result.b += 2*(right.b/3);
+    auto is_one = ruleset[(left.isOne()<<2)+(mid.isOne()<<1)+right.isOne()];
+    if(is_one){
+        #if MONO
+        RGB result = {0, 0, 0};
+        #else
+        RGB result = {static_cast<uint8_t>(left.r/2), static_cast<uint8_t>(mid.g/2), static_cast<uint8_t>(right.b/2)};
+        #endif
         return result;
     } else {
-        RGB result = {static_cast<uint8_t>(left.r/3), static_cast<uint8_t>(mid.g/3), static_cast<uint8_t>(right.b/3)};
-        // RGB result = {0, 0, 0};
+        #if MONO
+        RGB result = {255, 255, 255};
+        #else
+        const uint8_t added = 128;
+        RGB result;
+        result.r = std::clamp(1*(left.r/2)+added, 0, 255);
+        result.g = std::clamp(1*(mid.g/2)+added, 0, 255);
+        result.b = std::clamp(1*(right.b/2)+added, 0, 255);
+        #endif
         return result;
     }
 }
@@ -76,7 +87,7 @@ void scroll(std::vector<RGB>& image, int width, int height, std::vector<RGB> nex
 }
 
 void iterGeneration(SDL_Renderer* renderer, std::vector<RGB>& image, int width, int height, std::vector<RGB>& cells, bool *ruleset) {
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
 
     auto next_cells = getNextCells(cells, ruleset);
@@ -88,14 +99,14 @@ void iterGeneration(SDL_Renderer* renderer, std::vector<RGB>& image, int width, 
 }
 
 int main() {
-    int rule = 129;
+    int rule = START_RULE;
     bool ruleset[8] = {0};
     getRuleSet(rule, ruleset);
 
     std::vector<RGB> image;
     image.reserve(WIDTH*HEIGHT);
-    std::vector<RGB> cells(WIDTH, {0, 0, 0});
-    cells[WIDTH/2] = {255, 255, 255};
+    std::vector<RGB> cells(WIDTH, {255, 255, 255});
+    cells[WIDTH/2] = {0, 0, 0};
 
     bool quit = false, first_frame = true;
     SDL_Event event;
@@ -130,8 +141,8 @@ int main() {
                         std::cout << rule << std::endl;
                         break;
                     case SDLK_r:
-                        cells = std::vector<RGB>(WIDTH, {0, 0, 0});
-                        cells[WIDTH/2] = {255, 255, 255};
+                        cells = std::vector<RGB>(WIDTH, {255, 255, 255});
+                        cells[WIDTH/2] = {0, 0, 0};
                         first_frame = true;
                         std::cout << "reseted" << std::endl;
                         break;
@@ -140,7 +151,7 @@ int main() {
             }
         }
         if(first_frame){
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             SDL_RenderClear(renderer);
 
             scroll(image, WIDTH, HEIGHT, cells);
