@@ -3,8 +3,9 @@
 #include <vector>
 #include <algorithm>
 #include <thread>
+#include <chrono>
 
-#define DELAY 25
+#define DELAY 0
 #define WIDTH 200
 #define HEIGHT 180
 #define SCALE 5
@@ -29,16 +30,26 @@ typedef struct RGB {
 } RGB;
 
 
-void drawScene(SDL_Renderer* renderer, const std::vector<RGB> image, int width, int height) {
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+void drawScene(SDL_Surface *window_surface, SDL_Window *window, const std::vector<RGB> image, unsigned int width, unsigned int height) {
+    SDL_LockSurface(window_surface);
+    for (unsigned int y = 0; y < height; y++) {
+        for (unsigned int x = 0; x < width; x++) {
             if(y*width+x < image.size()){
                 auto current_pixel = image[y*width+x];
-                SDL_SetRenderDrawColor(renderer, current_pixel.r, current_pixel.g, current_pixel.b, 255);
-                SDL_RenderDrawPoint(renderer, x, y);
+                if(SCALE > 1) {
+                    for(int k = 0; k < SCALE; k++) {
+                        for(int l = 0; l < SCALE; l++){
+                            static_cast<uint32_t*>(window_surface->pixels)[(y*SCALE+k)*SCALE*width+x*SCALE+l] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
+                        }    
+                    }
+                } else {
+                    static_cast<uint32_t*>(window_surface->pixels)[y*width+x] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
+                }
             }
         }
     }
+    SDL_UnlockSurface(window_surface);
+    SDL_UpdateWindowSurface(window);
 }
 
 void getRuleSet(int rule, bool* ruleset){
@@ -72,7 +83,7 @@ RGB getNewState(RGB left, RGB mid, RGB right, bool *ruleset) {
 
 std::vector<RGB> getNextCells(const std::vector<RGB> cells, bool *ruleset) {
     std::vector<RGB> next_cells(cells.size(), {0, 0, 0});
-    for(int i = 0; i < cells.size(); i++) {
+    for(unsigned int i = 0; i < cells.size(); i++) {
         int left_id = i == 0 ? cells.size()-1 : i-1;
         int right_id = (i+1) % cells.size();
 
@@ -81,21 +92,17 @@ std::vector<RGB> getNextCells(const std::vector<RGB> cells, bool *ruleset) {
     return next_cells;
 }
 
-void scroll(std::vector<RGB>& image, int width, int height, std::vector<RGB> next_cells) {
+void scroll(std::vector<RGB>& image, unsigned int width, unsigned int height, std::vector<RGB> next_cells) {
     if(image.size() == width*height) image.erase(image.begin(), image.begin()+next_cells.size());
     image.insert(image.end(), next_cells.begin(), next_cells.end());
 }
 
-void iterGeneration(SDL_Renderer* renderer, std::vector<RGB>& image, int width, int height, std::vector<RGB>& cells, bool *ruleset) {
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderClear(renderer);
-
+void iterGeneration(SDL_Window* window, SDL_Surface *window_surface, std::vector<RGB>& image, int width, int height, std::vector<RGB>& cells, bool *ruleset) {
     auto next_cells = getNextCells(cells, ruleset);
     scroll(image, width, height, next_cells);
 
     cells = next_cells;
-    drawScene(renderer, image, width, height);
-    SDL_RenderPresent(renderer);
+    drawScene(window_surface, window, image, width, height);
 }
 
 int main() {
@@ -112,12 +119,12 @@ int main() {
     SDL_Event event;
     SDL_Window *window = nullptr;
     SDL_Renderer *renderer = nullptr;
+    SDL_Surface *window_surface = nullptr;
 
     SDL_Init(SDL_INIT_EVERYTHING);
     SDL_CreateWindowAndRenderer(WIDTH*SCALE, HEIGHT*SCALE, 0, &window, &renderer);
     SDL_RenderSetScale(renderer, SCALE, SCALE);
-    
-    SDL_Delay(DELAY);
+    window_surface = SDL_GetWindowSurface(window);
 
 
     while(!quit) {
@@ -150,22 +157,26 @@ int main() {
                 
             }
         }
+        auto t_1 = std::chrono::system_clock::now();
         if(first_frame){
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             SDL_RenderClear(renderer);
-
-            scroll(image, WIDTH, HEIGHT, cells);
-            drawScene(renderer, image, WIDTH, HEIGHT);
             SDL_RenderPresent(renderer);
 
+            scroll(image, WIDTH, HEIGHT, cells);
+            drawScene(window_surface, window, image, WIDTH, HEIGHT);
+            
             first_frame = false;
         } else {
-            iterGeneration(renderer, image, WIDTH, HEIGHT, cells, ruleset);
+            iterGeneration(window, window_surface, image, WIDTH, HEIGHT, cells, ruleset);
         }
-        
+        // std::cout << "render time: " <<
+        //  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - t_1).count()/1000.0 <<
+        //  "ms" << std::endl;
         SDL_Delay(DELAY);
     }
     
+    SDL_DestroyWindowSurface(window);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
 

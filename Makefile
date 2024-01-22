@@ -1,2 +1,2 @@
 all:
-	g++ main.cpp -lSDL2 -o main
+	g++ main.cpp -lSDL2 -Wall -o main
