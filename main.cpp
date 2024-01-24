@@ -5,12 +5,13 @@
 #include <thread>
 #include <chrono>
 
-#define DELAY 0
+#define DELAY 25
 #define WIDTH 200
 #define HEIGHT 180
 #define SCALE 5
 #define START_RULE 129
 #define MONO 0
+#define SHOW_FRAME_TIME
 
 
 typedef struct RGB {
@@ -31,22 +32,33 @@ typedef struct RGB {
 
 
 void drawScene(SDL_Surface *window_surface, SDL_Window *window, const std::vector<RGB> image, unsigned int width, unsigned int height) {
+    const unsigned int threads_n = 4;
+    unsigned int image_size = image.size();
     SDL_LockSurface(window_surface);
-    for (unsigned int y = 0; y < height; y++) {
-        for (unsigned int x = 0; x < width; x++) {
-            if(y*width+x < image.size()){
-                auto current_pixel = image[y*width+x];
-                if(SCALE > 1) {
-                    for(int k = 0; k < SCALE; k++) {
-                        for(int l = 0; l < SCALE; l++){
-                            static_cast<uint32_t*>(window_surface->pixels)[(y*SCALE+k)*SCALE*width+x*SCALE+l] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
-                        }    
+    auto job = [height, width, image_size, &image, &window_surface](unsigned int start, unsigned int end){
+        for (unsigned int y = start; y < end; y++) {
+            for (unsigned int x = 0; x < width; x++) {
+                if(y*width+x < image_size){
+                    auto current_pixel = image[y*width+x];
+                    if(SCALE > 1) {
+                        for(int k = 0; k < SCALE; k++) {
+                            for(int l = 0; l < SCALE; l++){
+                                static_cast<uint32_t*>(window_surface->pixels)[(y*SCALE+k)*SCALE*width+x*SCALE+l] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
+                            }    
+                        }
+                    } else {
+                        static_cast<uint32_t*>(window_surface->pixels)[y*width+x] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
                     }
-                } else {
-                    static_cast<uint32_t*>(window_surface->pixels)[y*width+x] = current_pixel.b + (current_pixel.g<<8) + (current_pixel.r<<16);
                 }
             }
         }
+    };
+    std::vector<std::thread> threads;
+    for(unsigned int i = 0; i < threads_n; i++){
+        threads.push_back(std::thread(job, i*(height/threads_n), (i+1)*(height/threads_n)));
+    }
+    for(auto & t : threads) {
+        t.join();
     }
     SDL_UnlockSurface(window_surface);
     SDL_UpdateWindowSurface(window);
@@ -97,7 +109,8 @@ void scroll(std::vector<RGB>& image, unsigned int width, unsigned int height, st
     image.insert(image.end(), next_cells.begin(), next_cells.end());
 }
 
-void iterGeneration(SDL_Window* window, SDL_Surface *window_surface, std::vector<RGB>& image, int width, int height, std::vector<RGB>& cells, bool *ruleset) {
+void iterGeneration(SDL_Window* window, SDL_Surface *window_surface, std::vector<RGB>& image,
+                    int width, int height, std::vector<RGB>& cells, bool *ruleset) {
     auto next_cells = getNextCells(cells, ruleset);
     scroll(image, width, height, next_cells);
 
@@ -157,12 +170,12 @@ int main() {
                 
             }
         }
-        auto t_1 = std::chrono::system_clock::now();
-        if(first_frame){
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            SDL_RenderClear(renderer);
-            SDL_RenderPresent(renderer);
 
+        #ifdef SHOW_FRAME_TIME
+        auto t_1 = std::chrono::system_clock::now();
+        #endif
+
+        if(first_frame){
             scroll(image, WIDTH, HEIGHT, cells);
             drawScene(window_surface, window, image, WIDTH, HEIGHT);
             
@@ -170,9 +183,13 @@ int main() {
         } else {
             iterGeneration(window, window_surface, image, WIDTH, HEIGHT, cells, ruleset);
         }
-        // std::cout << "render time: " <<
-        //  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - t_1).count()/1000.0 <<
-        //  "ms" << std::endl;
+
+        #ifdef SHOW_FRAME_TIME
+        std::cout << "render time: " <<
+         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - t_1).count()/1000.0 <<
+         "ms" << std::endl;
+        #endif
+
         SDL_Delay(DELAY);
     }
     
